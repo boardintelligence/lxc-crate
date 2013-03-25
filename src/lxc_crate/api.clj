@@ -18,55 +18,93 @@
   [hostname]
   (helpers/host-has-phase? hostname :create-lxc-image-step1))
 
-(defn create-lxc-image
-  "Create a lxc image on a given image server."
-  [image-server image-spec-name image-spec]
+(defn boot-up-fresh-tmp-container
+  "Boot up our known pre-defined lxc container"
+  [image-server spec-kw spec]
   (helpers/ensure-nodelist-bindings)
   (when-not (host-is-lxc-image-server? image-server)
     (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
   (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
         tmp-hostname (:tmp-hostname image-server-conf)]
-
-    (println "create-lxc-image:")
-    (println "Running step 1 - create minimal base container..")
-    (let [result (helpers/run-one-plan-fn image-server lxc/create-lxc-image-step1 {:image-spec image-spec})]
+    (println "Bring up minimal minimal base container..")
+    (let [result (helpers/run-one-plan-fn image-server lxc/boot-up-fresh-tmp-container {:image-spec spec})]
       (when (fsmop/failed? result)
-        (throw (IllegalStateException. "Failed to create image (step1)!"))))
+        (throw (IllegalStateException. "Failed to bring up fresh tmp container!")))
+      (println "Waiting for container to spin up (10s)..")
+      (Thread/sleep (* 10 1000))
+      (println "tmp container up - connect to it using:" tmp-hostname))))
 
-    (println "Waiting for container to spin up (10s)..")
-    (Thread/sleep (* 10 1000)) ;; give it a chance to spin up
-
-    (println "Running step 2 - image setup function..")
-    (let [result (helpers/run-one-plan-fn tmp-hostname
-                                          ;;tmp-admin-user
-                                          lxc/create-lxc-image-step2
-                                          {:image-spec image-spec})]
+(defn run-setup-fn-in-tmp-container
+  "Run a given image-spec's setup-fn in the tmp container"
+  [image-server spec-kw spec]
+  (helpers/ensure-nodelist-bindings)
+  (when-not (host-is-lxc-image-server? image-server)
+    (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
+  (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
+        tmp-hostname (:tmp-hostname image-server-conf)]
+    (println "Run setup-fn..")
+    (let [result (helpers/run-one-plan-fn tmp-hostname lxc/run-setup-fn-in-tmp-container {:image-spec spec})]
       (when (fsmop/failed? result)
-        (throw (IllegalStateException. "Failed to create image (step2)!"))))
+        (throw (IllegalStateException. "Failed to run setup-fn in tmp container!")))
+      (println "Setup-fn finished."))))
 
-    (println "Waiting for container to halt in 1min (and 10s)..")
-    (Thread/sleep (* 70 1000))
-    (println "Running step 3 - take image snapshot and destroy tmp container..")
-    (let [result (helpers/run-one-plan-fn image-server lxc/create-lxc-image-step3 {:image-spec image-spec
-                                                                                   :image-spec-name image-spec-name})]
+(defn halt-tmp-container
+  "Halt the tmp container"
+  [image-server spec-kw spec]
+  (helpers/ensure-nodelist-bindings)
+  (when-not (host-is-lxc-image-server? image-server)
+    (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
+  (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
+        tmp-hostname (:tmp-hostname image-server-conf)]
+    (println "Halt tmp container..")
+    (let [result (helpers/run-one-plan-fn tmp-hostname lxc/halt-tmp-container)]
       (when (fsmop/failed? result)
-        (throw (IllegalStateException. "Failed to create image (step3)!"))))
-    (println "Finished - lxc image created")))
+        (throw (IllegalStateException. "Failed to halt tmp container!")))
+      (println "Waiting for container to halt (70s)..")
+      (Thread/sleep (* 70 1000))
+      (println "tmp container halted."))))
 
-;;;;;;; for dnsmasq crate
+(defn snapshot-image-of-tmp-container
+  "Take a snapshot of the tmp container."
+  [image-server spec-kw spec]
+  (helpers/ensure-nodelist-bindings)
+  (when-not (host-is-lxc-image-server? image-server)
+    (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
+  (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
+        tmp-hostname (:tmp-hostname image-server-conf)]
+    (println "Snapshot tmp container..")
+    (let [result (helpers/run-one-plan-fn image-server lxc/snapshot-tmp-container {:image-spec spec
+                                                                                   :image-spec-name (name spec-kw)})]
+      (when (fsmop/failed? result)
+        (throw (IllegalStateException. "Failed to snapshot tmp container!")))
+      (println "tmp container snapshot for spec" spec-kw))))
 
-;; (defn host-is-lxc-dhcp-server?
-;;   "Check if a host is a DHCP server (as understood by the lxc-create)"
-;;   [hostname]
-;;   (helpers/host-has-phase? hostname :update-dhcp-config))
+(defn destroy-tmp-container
+  "Destroy the tmp container."
+  [image-server spec-kw spec]
+  (helpers/ensure-nodelist-bindings)
+  (when-not (host-is-lxc-image-server? image-server)
+    (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
+  (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
+        tmp-hostname (:tmp-hostname image-server-conf)]
+    (println "Destroy the tmp container..")
+    (let [result (helpers/run-one-plan-fn image-server lxc/destroy-tmp-container {:image-spec spec})]
+      (when (fsmop/failed? result)
+        (throw (IllegalStateException. "Failed to destroy tmp container!")))
+      (println "tmp container destroyed."))))
 
-;; (defn update-dhcp-config
-;;   "Update the dhcp hosts file on DHCP server for private LAN."
-;;   [dhcp-server]
-;;   (helpers/ensure-nodelist-bindings)
-;;   (when-not (host-is-dhcp-server? dhcp-server)
-;;     (throw (IllegalArgumentException. (format "%s is not a dhcp server!" dhcp-server))))
-;;   (let [result (helpers/lift-one-node-and-phase dhcp-server :update-dhcp-config)]
-;;     (when (fsmop/failed? result)
-;;       (throw (IllegalStateException. "Failed to update dhcp config!")))
-;;     result))
+(defn create-lxc-image-all-steps
+  [image-server spec-kw specs]
+  (boot-up-fresh-tmp-container image-server spec-kw specs)
+  (run-setup-fn-in-tmp-container image-server spec-kw specs)
+  (halt-tmp-container image-server spec-kw specs)
+  (snapshot-image-of-tmp-container image-server spec-kw specs)
+  (destroy-tmp-container image-server spec-kw specs))
+
+(defn create-lxc-container
+  "Create a lxc container on a given lxc server."
+  [hostname spec-name spec]
+  (helpers/ensure-nodelist-bindings)
+  (let [lxc-server (get-in helpers/*nodelist-hosts-config* [hostname :lxc-server])]
+    (when-not (host-is-lxc-server? lxc-server)
+      (throw (IllegalArgumentException. (format "%s is not an LXC server!" lxc-server))))))

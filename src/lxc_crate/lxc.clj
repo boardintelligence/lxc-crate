@@ -126,9 +126,7 @@
    "Start lxc container"
    ("lxc-destroy -n" ~name "-f")))
 
-(defplan create-lxc-image-step1
-  "Create a LXC container image according to a given spec - step1.
-  Step 1 will create the base container and start it up."
+(defplan boot-up-fresh-tmp-container
   []
   (let [server (crate/target-name)
         tmp-hostname (env/get-environment [:host-config server :image-server :tmp-hostname])
@@ -148,49 +146,52 @@
     (create-base-container tmp-hostname
                            "/etc/lxc/lxc-tmp.conf"
                            (get-in image-spec [:lxc-create :template])
-                           (get-in image-spec [:lxc-create :release])
+                           (get-in image-spec [:lxc-create :template-args :release])
                            remote-ssh-key-path)
 
     (boot-up-container tmp-hostname)))
 
-(defplan create-lxc-image-step2
-  "Create a LXC container image according to a given spec - step2.
-  Step 2 will run the image setup function in the tmp container.
-  It will also install the wanted root ssh key."
+(defplan run-setup-fn-in-tmp-container
   []
   (let [tmp-hostname (crate/target-name)
         image-spec (env/get-environment [:image-spec])
         root-auth-key-path (env/get-environment [:image-spec :root-auth-key])]
 
-    ;; first run the setup-fn
     (when (:setup-fn image-spec)
       ((:setup-fn image-spec)))
-
     ;; then install the right root ssh key
-    (actions/exec-checked-script
-     "Remove tmp ssh key"
-     ("rm -f /root/.ssh/authorized_keys"))
-    (ssh-key/authorize-key "root" (slurp root-auth-key-path))
+    ;; (actions/exec-checked-script
+    ;;  "Remove tmp ssh key"
+    ;;  ("rm -f /root/.ssh/authorized_keys"))
+    ;; (ssh-key/authorize-key "root" (slurp root-auth-key-path))
+    ))
 
-    (actions/exec-checked-script
-     "Halt tmp instance."
-     ("apt-get install at")
-     (pipe ("echo halt")
-           ("at -M now + 1 minute")))))
+(defplan halt-tmp-container
+  "Halt tmp container."
+  []
+  (actions/exec-checked-script
+   "Halt tmp instance."
+   ("apt-get install at")
+   (pipe ("echo halt")
+         ("at -M now + 1 minute"))))
 
-(defplan create-lxc-image-step3
-  "Create a LXC container image according to a given spec - step3.
-  Step 3 will take a snapshot of the tmp container image and then destroy it."
+(defplan snapshot-tmp-container
   []
   (let [server (crate/target-name)
         tmp-hostname (env/get-environment [:host-config server :image-server :tmp-hostname])
         spec-name (env/get-environment [:image-spec-name])]
     (println "Taking snapshot of image..")
-    (take-image-snapshot tmp-hostname spec-name)
+    (take-image-snapshot tmp-hostname spec-name)))
+
+(defplan destroy-tmp-container
+  []
+  (let [server (crate/target-name)
+        tmp-hostname (env/get-environment [:host-config server :image-server :tmp-hostname])]
     (println "Destroying tmp container..")
     (destroy-container tmp-hostname)))
 
-;; (defplan create-guest-vm
-;;   "TODO: implement"
-;;   []
-;;   )
+(defplan create-lxc-container
+  "Create a given lxc-container"
+  []
+
+  )
