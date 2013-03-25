@@ -1,0 +1,2 @@
+#!/bin/bash
+ovs-vsctl del-port ~{bridge} $5
