@@ -50,7 +50,7 @@
 
 (defn halt-tmp-container
   "Halt the tmp container"
-  [image-server spec-kw spec]
+  [image-server]
   (helpers/ensure-nodelist-bindings)
   (when-not (host-is-lxc-image-server? image-server)
     (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
@@ -81,14 +81,14 @@
 
 (defn destroy-tmp-container
   "Destroy the tmp container."
-  [image-server spec-kw spec]
+  [image-server]
   (helpers/ensure-nodelist-bindings)
   (when-not (host-is-lxc-image-server? image-server)
     (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
   (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
         tmp-hostname (:tmp-hostname image-server-conf)]
     (println "Destroy the tmp container..")
-    (let [result (helpers/run-one-plan-fn image-server lxc/destroy-tmp-container {:image-spec spec})]
+    (let [result (helpers/run-one-plan-fn image-server lxc/destroy-tmp-container)]
       (when (fsmop/failed? result)
         (throw (IllegalStateException. "Failed to destroy tmp container!")))
       (println "tmp container destroyed."))))
@@ -103,8 +103,16 @@
 
 (defn create-lxc-container
   "Create a lxc container on a given lxc server."
-  [hostname spec-name spec]
+  [hostname image-specs]
   (helpers/ensure-nodelist-bindings)
-  (let [lxc-server (get-in helpers/*nodelist-hosts-config* [hostname :lxc-server])]
+  (let [container-config (get helpers/*nodelist-hosts-config* hostname)
+        lxc-server (:lxc-server container-config)]
     (when-not (host-is-lxc-server? lxc-server)
-      (throw (IllegalArgumentException. (format "%s is not an LXC server!" lxc-server))))))
+      (throw (IllegalArgumentException. (format "%s is not an LXC server!" lxc-server))))
+    (println (format "Create container %s (on server %s).."
+                     hostname lxc-server))
+    (let [result (helpers/lift-one-node-and-phase lxc-server :create-lxc-container {:container-for hostname
+                                                                                    :image-specs image-specs})]
+      (when (fsmop/failed? result)
+        (throw (IllegalStateException. "Failed to create container!"))))
+    (println (format "Container created for %s." hostname))))

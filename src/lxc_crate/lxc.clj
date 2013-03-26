@@ -1,6 +1,7 @@
 (ns lxc-crate.lxc
   "Crate with functions for setting up and configuring LXC servers and containers"
-  (:require [pallet.actions :as actions]
+  (:require clojure.string
+            [pallet.actions :as actions]
             [pallet.utils :as utils]
             [pallet.crate :as crate]
             [pallet.environment :as env]
@@ -47,12 +48,12 @@
     (actions/remote-file "/etc/lxc/ovsup"
                          :mode "0755"
                          :literal true
-                         :template (utils/resource-path "lxc/ovsup")
+                         :template "lxc/ovsup"
                          :values {:bridge bridge})
     (actions/remote-file "/etc/lxc/ovsdown"
                          :mode "0755"
                          :literal true
-                         :template (utils/resource-path "lxc/ovdown")
+                         :template "lxc/ovdown"
                          :values {:bridge bridge})))
 
 (defplan setup-lxc
@@ -192,6 +193,61 @@
 
 (defplan create-lxc-container
   "Create a given lxc-container"
-  []
+  [ & {:keys [overwrite?]}]
+  (let [server (crate/target-name)
+        image-specs (env/get-environment [:image-specs])
+        container-hostname (env/get-environment [:container-for])
+        container-config (env/get-environment [:host-config container-hostname])
+        spec (get image-specs (:base-image container-config))
+        ssh-public-key (env/get-environment [:host-config container-hostname :admin-user :ssh-public-key-path])
+        remote-ssh-key-path (format "/tmp/%s.pub" container-hostname)
+        image-dir (format "/var/lib/lxc/%s" container-hostname)
+        remote-config-file (format "/etc/lxc/lxc-%s.conf" container-hostname)
+        config-local-path (get-in spec [:lxc-create :f])
+        local-template-file (get-in spec [:lxc-create :template-script])]
+    (prn container-config)
+    (actions/remote-file remote-ssh-key-path
+                         :mode "0644"
+                         :literal true
+                         :local-file ssh-public-key)
+    (actions/remote-file remote-config-file
+                         :mode "0644"
+                         :literal true
+                         :template config-local-path
+                         :values {:mac (:mac container-config)})
 
-  )
+    (when local-template-file
+      (actions/remote-file (format "/usr/share/lxc/templates/lxc-%s"
+                                   (get-in spec [:lxc-create :template]))
+                           :mode "0755"
+                           :literal true
+                           :local-file local-template-file))
+
+    (when overwrite?
+      (actions/exec-checked-script
+       "Ensure old container not in the way"
+       ("lxc-stop -n" ~container-hostname)
+       ("sleep 5")
+       ("rm -rf" ~image-dir)))
+
+    ;; TODO: refactor to generate a string of args here and pass the args
+    ;; more generic
+    (create-base-container container-hostname
+                           remote-config-file
+                           (get-in spec [:lxc-create :t])
+                           (get-in spec [:lxc-create :template-args :release])
+                           remote-ssh-key-path)
+
+    (when-let [image-url (:image-url spec)]
+      (let [config-remote-path (format "%s/config" image-dir)
+            backup-config (format "/tmp/%s-lxc-config" container-hostname)]
+        (actions/exec-checked-script
+         "Backup config file"
+         ("cp" ~config-remote-path ~backup-config)
+         ("rm -rf" ~image-dir)
+         ("mkdir -p" ~image-dir)
+         ("rdiff-backup --restore-as-of now" ~image-url ~image-dir)
+         ("cp" ~backup-config ~config-remote-path))))
+
+    ;; spin up container
+    (boot-up-container container-hostname)))
