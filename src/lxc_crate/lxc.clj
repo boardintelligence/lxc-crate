@@ -127,31 +127,6 @@
    "Start lxc container"
    ("lxc-destroy -n" ~name "-f")))
 
-(defplan boot-up-fresh-tmp-container
-  []
-  (let [server (crate/target-name)
-        tmp-hostname (env/get-environment [:host-config server :image-server :tmp-hostname])
-        ssh-public-key (env/get-environment [:host-config tmp-hostname :admin-user :ssh-public-key-path])
-        image-spec (env/get-environment [:image-spec])
-        remote-ssh-key-path (format "/home/image-server/ssh-keys/%s.pub" tmp-hostname)
-        remote-image-dir (format "/var/lib/lxc/%s" tmp-hostname)]
-    (actions/remote-file remote-ssh-key-path
-                         :mode "0644"
-                         :literal true
-                         :local-file ssh-public-key)
-    (actions/exec-checked-script
-     "Ensure old container not in the way"
-     ("lxc-stop -n" ~tmp-hostname)
-     ("sleep 5")
-     ("rm -rf" ~remote-image-dir))
-    (create-base-container tmp-hostname
-                           "/etc/lxc/lxc-tmp.conf"
-                           (get-in image-spec [:lxc-create :template])
-                           (get-in image-spec [:lxc-create :template-args :release])
-                           remote-ssh-key-path)
-
-    (boot-up-container tmp-hostname)))
-
 (defplan run-setup-fn-in-tmp-container
   []
   (let [tmp-hostname (crate/target-name)
