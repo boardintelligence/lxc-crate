@@ -131,7 +131,9 @@
   []
   (let [tmp-hostname (crate/target-name)
         host-config (env/get-environment [:host-config tmp-hostname])
-        image-spec (env/get-environment [:image-specs (:base-image host-config)])
+        spec-kw (or (env/get-environment [:override-spec])
+                    (:base-image host-config))
+        image-spec (env/get-environment [:image-specs spec-kw])
         ;;root-auth-key-path (get image-spec :root-auth-key)
         ]
 
@@ -157,7 +159,9 @@
   []
   (let [server (crate/target-name)
         tmp-hostname (env/get-environment [:host-config server :image-server :tmp-hostname])
-        spec-name (name (env/get-environment [:host-config tmp-hostname :base-image]))]
+        spec-kw (or (env/get-environment [:override-spec])
+                    (env/get-environment [:host-config tmp-hostname :base-image]))
+        spec-name (name spec-kw)]
     (println "Taking snapshot of image..")
     (take-image-snapshot tmp-hostname spec-name)))
 
@@ -175,7 +179,9 @@
         image-specs (env/get-environment [:image-specs])
         container-hostname (env/get-environment [:container-for])
         container-config (env/get-environment [:host-config container-hostname])
-        spec (get image-specs (:base-image container-config))
+        spec-kw (or (env/get-environment [:override-spec])
+                    (:base-image container-config))
+        spec (get image-specs spec-kw)
         ssh-public-key (env/get-environment [:host-config container-hostname :admin-user :ssh-public-key-path])
         remote-ssh-key-path (format "/tmp/%s.pub" container-hostname)
         image-dir (format "/var/lib/lxc/%s" container-hostname)
