@@ -6,6 +6,7 @@
             [pallet.crate :as crate]
             [pallet.environment :as env]
             [pallet.crate.ssh-key :as ssh-key]
+            [pallet.crate.automated-admin-user :as admin-user]
             [pallet.crate :refer [defplan]]))
 
 (defplan install-packages
@@ -134,17 +135,15 @@
         spec-kw (or (env/get-environment [:override-spec])
                     (:base-image host-config))
         image-spec (env/get-environment [:image-specs spec-kw])
-        ;;root-auth-key-path (get image-spec :root-auth-key)
-        ]
+        root-key-pub (get image-spec :root-key-pub)]
 
     (when (:setup-fn image-spec)
       ((:setup-fn image-spec)))
-    ;; then install the right root ssh key
-    ;; (actions/exec-checked-script
-    ;;  "Remove tmp ssh key"
-    ;;  ("rm -f /root/.ssh/authorized_keys"))
-    ;; (ssh-key/authorize-key "root" (slurp root-auth-key-path))
-    ))
+
+    (actions/exec-checked-script
+     "Remove tmp ssh key"
+     ("rm -f /root/.ssh/authorized_keys"))
+    (ssh-key/authorize-key "root" (slurp root-key-pub))))
 
 (defplan halt-tmp-container
   "Halt tmp container."
@@ -179,20 +178,21 @@
         image-specs (env/get-environment [:image-specs])
         container-hostname (env/get-environment [:container-for])
         container-config (env/get-environment [:host-config container-hostname])
-        spec-kw (or (env/get-environment [:override-spec])
-                    (:base-image container-config))
+        spec-kw (env/get-environment [:override-spec] (:base-image container-config))
         spec (get image-specs spec-kw)
+        tmp-run (env/get-environment [:tmp-container-run] nil)
         ssh-public-key (env/get-environment [:host-config container-hostname :admin-user :ssh-public-key-path])
         remote-ssh-key-path (format "/tmp/%s.pub" container-hostname)
         image-dir (format "/var/lib/lxc/%s" container-hostname)
         remote-config-file (format "/etc/lxc/lxc-%s.conf" container-hostname)
         config-local-path (get-in spec [:lxc-create :f])
         local-template-file (get-in spec [:lxc-create :template-script])]
-    (prn container-config)
+
     (actions/remote-file remote-ssh-key-path
                          :mode "0644"
                          :literal true
                          :local-file ssh-public-key)
+
     (actions/remote-file remote-config-file
                          :mode "0644"
                          :literal true
@@ -221,8 +221,9 @@
                            (get-in spec [:lxc-create :template-args :release])
                            remote-ssh-key-path)
 
-    (when-let [image-url (:image-url spec)]
-      (let [config-remote-path (format "%s/config" image-dir)
+    (when (and (not tmp-run) (:image-url spec))
+      (let [image-url (:image-url spec)
+            config-remote-path (format "%s/config" image-dir)
             backup-config (format "/tmp/%s-lxc-config" container-hostname)]
         (actions/exec-checked-script
          "Backup config file"
@@ -234,3 +235,23 @@
 
     ;; spin up container
     (boot-up-container container-hostname)))
+
+(defplan setup-container-admin-user
+  []
+  (let [hostname (crate/target-name)
+        host-config (env/get-environment [:host-config hostname])
+        admin-username (get-in host-config [:admin-user :username])
+        admin-ssh-public-key-path (get-in host-config [:admin-user :ssh-public-key-path])
+        rootpass (:rootpass host-config)]
+
+    ;; rootpass
+    (actions/exec-checked-script
+     "change root passwd and wipe root authrized_keys"
+     (pipe ("echo" ~(format "root:%s" rootpass))
+           ("chpasswd"))
+     ("rm -f /root/.ssh/authorized_keys"))
+
+    ;; admin user
+    (if (= admin-username "root")
+      (ssh-key/authorize-key "root" (slurp admin-ssh-public-key-path))
+      (admin-user/automated-admin-user admin-username admin-ssh-public-key-path))))

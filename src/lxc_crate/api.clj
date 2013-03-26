@@ -16,7 +16,7 @@
 (defn host-is-lxc-image-server?
   "Check if a host is an image server (as understood by the lxc-create)"
   [hostname]
-  (helpers/host-has-phase? hostname :create-lxc-image-step1))
+  (helpers/host-has-phase? hostname :snapshot-tmp-container))
 
 (defn boot-up-fresh-tmp-container
   "Boot up our known pre-defined lxc container"
@@ -30,6 +30,7 @@
     (let [result (helpers/run-one-plan-fn image-server (api/plan-fn (lxc/create-lxc-container :overwrite? true))
                                           {:container-for tmp-hostname
                                            :override-spec spec-kw
+                                           :tmp-container-run true
                                            :image-specs image-specs})]
       (when (fsmop/failed? result)
         (throw (IllegalStateException. "Failed to bring up fresh tmp container!")))
@@ -59,7 +60,9 @@
   (when-not (host-is-lxc-image-server? image-server)
     (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
   (println "Halt tmp container..")
-  (let [result (helpers/run-one-plan-fn tmp-hostname lxc/halt-tmp-container)]
+  (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
+        tmp-hostname (:tmp-hostname image-server-conf)
+        result (helpers/run-one-plan-fn tmp-hostname lxc/halt-tmp-container)]
     (when (fsmop/failed? result)
       (throw (IllegalStateException. "Failed to halt tmp container!")))
     (println "Waiting for container to halt (70s)..")
@@ -98,6 +101,27 @@
   (snapshot-image-of-tmp-container image-server spec-kw)
   (destroy-tmp-container image-server))
 
+(defn- root-from-image-spec
+  [image-spec]
+  (let [ssh-public-key-path (:root-key-pub image-spec)
+        ssh-private-key-path (:root-key-priv image-spec)
+        passphrase (:root-key-passphrase image-spec)]
+    (api/make-user "root"
+                   :public-key (slurp ssh-public-key-path)
+                   :private-key (slurp ssh-private-key-path)
+                   :passphrase passphrase
+                   :no-sudo true)))
+
+(defn setup-container-admin-user
+  "Setup admin user for container"
+  [hostname image-specs]
+  (helpers/ensure-nodelist-bindings)
+  (let [container-config (get helpers/*nodelist-hosts-config* hostname)
+        root-from-spec (root-from-image-spec ((:base-image container-config) image-specs))
+        result (helpers/run-one-plan-fn hostname root-from-spec lxc/setup-container-admin-user {})]
+    (when (fsmop/failed? result)
+      (throw (IllegalStateException. "Failed to create admin user!")))))
+
 (defn create-lxc-container
   "Create a lxc container on a given lxc server."
   [hostname image-specs]
@@ -108,8 +132,14 @@
       (throw (IllegalArgumentException. (format "%s is not an LXC server!" lxc-server))))
     (println (format "Create container %s (on server %s).."
                      hostname lxc-server))
+
     (let [result (helpers/lift-one-node-and-phase lxc-server :create-lxc-container {:container-for hostname
                                                                                     :image-specs image-specs})]
       (when (fsmop/failed? result)
         (throw (IllegalStateException. "Failed to create container!"))))
+
+    (println "Waiting 10s for container to boot..")
+    (println (Thread/sleep (* 10 1000)))
+    (println "Setting up container admin user..")
+    (setup-container-admin-user hostname image-specs)
     (println (format "Container created for %s." hostname))))

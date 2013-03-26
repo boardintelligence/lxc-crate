@@ -18,7 +18,7 @@
   (api/server-spec
    :phases
    {:configure (api/plan-fn (lxc/setup-image-server))
-    :create-lxc-image-step1 (api/plan-fn (lxc/boot-up-fresh-tmp-container))}))
+    :snapshot-tmp-container (api/plan-fn (lxc/snapshot-tmp-container))}))
 
 (def
   ^{:doc "Spec for a LXC container."}
