@@ -68,18 +68,17 @@
 
 (defn snapshot-image-of-tmp-container
   "Take a snapshot of the tmp container."
-  [image-server spec-kw spec]
+  [image-server]
   (helpers/ensure-nodelist-bindings)
   (when-not (host-is-lxc-image-server? image-server)
     (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
   (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
         tmp-hostname (:tmp-hostname image-server-conf)]
     (println "Snapshot tmp container..")
-    (let [result (helpers/run-one-plan-fn image-server lxc/snapshot-tmp-container {:image-spec spec
-                                                                                   :image-spec-name (name spec-kw)})]
+    (let [result (helpers/run-one-plan-fn image-server lxc/snapshot-tmp-container)]
       (when (fsmop/failed? result)
         (throw (IllegalStateException. "Failed to snapshot tmp container!")))
-      (println "tmp container snapshot for spec" spec-kw))))
+      (println "tmp container snapshot for " tmp-hostname))))
 
 (defn destroy-tmp-container
   "Destroy the tmp container."
