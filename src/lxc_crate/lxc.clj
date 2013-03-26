@@ -66,11 +66,6 @@
   (relink-var-lib-lxc-to-home)
   (install-ovs-scripts))
 
-(defplan create-lxc-container
-  "Create a new LXC container"
-  []
-  )
-
 (defplan setup-image-server
   "Perform all setup needed to make a host an LXC image server."
   []
@@ -90,11 +85,22 @@
                          :values {:mac mac})))
 
 (defplan create-base-container
-  "Create a base container, just the lxc-create step."
-  [name conf-file template release auth-key-path]
-  (actions/exec-checked-script
-   "Create a base container via lxc-create"
-   ("lxc-create -n" ~name "-f" ~conf-file "-t" ~template "-- --release" ~release "--auth-key" ~auth-key-path)))
+  "Create a base container, just the lxc-create step.
+  Note: we assume that with the args and the template used after running this
+  we have a container with a known root user ssh key approved.
+  See resources/lxc/lxc-root-ubuntu for an example template.
+  If :auth-key-path key is given it's added to the end of the template-args,
+  which works well with the ubuntu style tempaltes. For other targets work is
+  needed."
+  [name conf-file create-conf & {:keys [auth-key-path]}]
+  (let [template (:t create-conf)
+        template-args (reduce str "" (map (fn [[k v]] (format " --%s %s" (name k) v)) (:template-args create-conf)))
+        template-args (if auth-key-path
+                        (str template-args (format " --auth-key %s" auth-key-path))
+                        template-args)]
+    (actions/exec-checked-script
+     "Create a base container via lxc-create"
+     ("lxc-create -n" ~name "-f" ~conf-file "-t" ~template "--" ~template-args))))
 
 (defplan boot-up-container
   "Boot a given container"
@@ -213,13 +219,10 @@
        ("sleep 5")
        ("rm -rf" ~image-dir)))
 
-    ;; TODO: refactor to generate a string of args here and pass the args
-    ;; more generic
     (create-base-container container-hostname
                            remote-config-file
-                           (get-in spec [:lxc-create :t])
-                           (get-in spec [:lxc-create :template-args :release])
-                           remote-ssh-key-path)
+                           (get spec :lxc-crete)
+                           :auth-key-path remote-ssh-key-path)
 
     (when (and (not tmp-run) (:image-url spec))
       (let [image-url (:image-url spec)
