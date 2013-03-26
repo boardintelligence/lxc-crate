@@ -20,14 +20,16 @@
 
 (defn boot-up-fresh-tmp-container
   "Boot up our known pre-defined lxc container"
-  [image-server spec-kw spec]
+  [image-server image-specs]
   (helpers/ensure-nodelist-bindings)
   (when-not (host-is-lxc-image-server? image-server)
     (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
   (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
         tmp-hostname (:tmp-hostname image-server-conf)]
     (println "Bring up minimal minimal base container..")
-    (let [result (helpers/run-one-plan-fn image-server lxc/boot-up-fresh-tmp-container {:image-spec spec})]
+    (let [result (helpers/run-one-plan-fn image-server (api/plan-fn (lxc/create-lxc-container :overwrite? true))
+                                          {:container-for tmp-hostname
+                                           :image-specs image-specs})]
       (when (fsmop/failed? result)
         (throw (IllegalStateException. "Failed to bring up fresh tmp container!")))
       (println "Waiting for container to spin up (10s)..")
@@ -36,14 +38,14 @@
 
 (defn run-setup-fn-in-tmp-container
   "Run a given image-spec's setup-fn in the tmp container"
-  [image-server spec-kw spec]
+  [image-server image-specs]
   (helpers/ensure-nodelist-bindings)
   (when-not (host-is-lxc-image-server? image-server)
     (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
   (let [image-server-conf (get-in helpers/*nodelist-hosts-config* [image-server :image-server])
         tmp-hostname (:tmp-hostname image-server-conf)]
     (println "Run setup-fn..")
-    (let [result (helpers/run-one-plan-fn tmp-hostname lxc/run-setup-fn-in-tmp-container {:image-spec spec})]
+    (let [result (helpers/run-one-plan-fn tmp-hostname lxc/run-setup-fn-in-tmp-container {:image-specs image-specs})]
       (when (fsmop/failed? result)
         (throw (IllegalStateException. "Failed to run setup-fn in tmp container!")))
       (println "Setup-fn finished."))))
@@ -94,12 +96,12 @@
       (println "tmp container destroyed."))))
 
 (defn create-lxc-image-all-steps
-  [image-server spec-kw specs]
-  (boot-up-fresh-tmp-container image-server spec-kw specs)
-  (run-setup-fn-in-tmp-container image-server spec-kw specs)
-  (halt-tmp-container image-server spec-kw specs)
-  (snapshot-image-of-tmp-container image-server spec-kw specs)
-  (destroy-tmp-container image-server spec-kw specs))
+  [image-server image-specs]
+  (boot-up-fresh-tmp-container image-server image-specs)
+  (run-setup-fn-in-tmp-container image-server image-specs)
+  (halt-tmp-container image-server)
+  (snapshot-image-of-tmp-container image-server)
+  (destroy-tmp-container image-server))
 
 (defn create-lxc-container
   "Create a lxc container on a given lxc server."

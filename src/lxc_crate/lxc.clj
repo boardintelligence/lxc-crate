@@ -155,8 +155,10 @@
 (defplan run-setup-fn-in-tmp-container
   []
   (let [tmp-hostname (crate/target-name)
-        image-spec (env/get-environment [:image-spec])
-        root-auth-key-path (env/get-environment [:image-spec :root-auth-key])]
+        host-config (env/get-environment [:host-config tmp-hostname])
+        image-spec (env/get-environment [:image-specs (:base-image host-config)])
+        ;;root-auth-key-path (get image-spec :root-auth-key)
+        ]
 
     (when (:setup-fn image-spec)
       ((:setup-fn image-spec)))
@@ -180,7 +182,7 @@
   []
   (let [server (crate/target-name)
         tmp-hostname (env/get-environment [:host-config server :image-server :tmp-hostname])
-        spec-name (env/get-environment [:image-spec-name])]
+        spec-name (name (env/get-environment [:host-config tmp-hostname :base-image]))]
     (println "Taking snapshot of image..")
     (take-image-snapshot tmp-hostname spec-name)))
 
