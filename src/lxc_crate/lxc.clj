@@ -2,6 +2,7 @@
   "Crate with functions for setting up and configuring LXC servers and containers"
   (:require clojure.string
             [pallet.actions :as actions]
+            [pallet.action :refer [with-action-options]]
             [pallet.utils :as utils]
             [pallet.crate :as crate]
             [pallet.environment :as env]
@@ -12,7 +13,8 @@
 (defplan install-packages
   "Install all needed packages for LXC."
   []
-  (actions/package "lxc"))
+  (actions/package "lxc")
+  (actions/package "rdiff-backup"))
 
 (defplan install-lxc-defaults
   "Install our lxc defaults, don't want default lxcbr0 bridge."
@@ -125,7 +127,7 @@
         backup-dir (format "/home/image-server/images/%s" spec-name)]
     (actions/exec-checked-script
      "Take a snapshot of a given image"
-     ("rdiff-backup" ~image-dir ~backup-dir))))
+     ("rdiff-backup --preserve-numerical-ids" ~image-dir ~backup-dir))))
 
 (defplan destroy-container
   "Destroy a given container"
@@ -143,8 +145,13 @@
         image-spec (env/get-environment [:image-specs spec-kw])
         root-key-pub (get image-spec :root-key-pub)]
 
+    (with-action-options {:always-before #{actions/package-manager actions/package actions/minimal-packages}}
+      (actions/package-manager :update)
+      (actions/exec-script "apt-get install -q -y aptitude software-properties-common"))
+    (actions/minimal-packages)
+
     (when (:setup-fn image-spec)
-      ((:setup-fn image-spec)))
+      ((:setup-fn image-spec) image-spec host-config))
 
     (actions/exec-checked-script
      "Remove tmp ssh key"
@@ -233,7 +240,7 @@
          ("cp" ~config-remote-path ~backup-config)
          ("rm -rf" ~image-dir)
          ("mkdir -p" ~image-dir)
-         ("rdiff-backup --restore-as-of now" ~image-url ~image-dir)
+         ("rdiff-backup --preserve-numerical-ids --restore-as-of now" ~image-url ~image-dir)
          ("cp" ~backup-config ~config-remote-path))))
 
     ;; spin up container
