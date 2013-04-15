@@ -115,7 +115,7 @@
   []
   (with-action-options {:always-before #{actions/package-manager actions/package actions/minimal-packages}}
     (actions/package-manager :update)
-    (actions/exec-script "apt-get install -q -y aptitude software-properties-common"))
+    (actions/exec-script "apt-get install -q -y aptitude software-properties-common ncurses-term"))
   (actions/minimal-packages))
 
 (defplan halt-container
