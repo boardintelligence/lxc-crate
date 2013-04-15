@@ -36,6 +36,9 @@
         (throw (IllegalStateException. "Failed to bring up fresh tmp container!")))
       (println "Waiting for container to spin up (10s)..")
       (Thread/sleep (* 10 1000))
+      (let [result (helpers/run-one-plan-fn image-server (api/plan-fn (lxc/minimal-image-prep)))]
+        (when (fsmop/failed? result)
+          (throw (IllegalStateException. "Failed to do minimal image prep of tmp container!"))))
       (println "tmp container up - connect to it using:" tmp-hostname))))
 
 (defn run-setup-fn-in-tmp-container

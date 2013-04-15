@@ -111,6 +111,13 @@
    "Start lxc container"
    ("lxc-start -d -n" ~name)))
 
+(defplan minimal-image-prep
+  []
+  (with-action-options {:always-before #{actions/package-manager actions/package actions/minimal-packages}}
+    (actions/package-manager :update)
+    (actions/exec-script "apt-get install -q -y aptitude software-properties-common"))
+  (actions/minimal-packages))
+
 (defplan halt-container
   "Halt a given container"
   [name]
@@ -144,11 +151,6 @@
                     (:base-image host-config))
         image-spec (env/get-environment [:image-specs spec-kw])
         root-key-pub (get image-spec :root-key-pub)]
-
-    (with-action-options {:always-before #{actions/package-manager actions/package actions/minimal-packages}}
-      (actions/package-manager :update)
-      (actions/exec-script "apt-get install -q -y aptitude software-properties-common"))
-    (actions/minimal-packages)
 
     (when (:setup-fn image-spec)
       ((:setup-fn image-spec) image-spec host-config))
