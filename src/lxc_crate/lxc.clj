@@ -7,6 +7,7 @@
             [pallet.crate :as crate]
             [pallet.environment :as env]
             [pallet.crate.ssh-key :as ssh-key]
+            [ssh-utils-crate.ssh-utils :as ssh-utils]
             [pallet.crate.automated-admin-user :as admin-user]
             [pallet.crate :refer [defplan]]))
 
@@ -79,7 +80,6 @@
      ("mkdir -p /home/image-server/images")
      ("mkdir -p /home/image-server/ssh-keys")
      ("mkdir -p /home/image-server/etc"))
-    ;; TODO: install known config file into etc used to spin up temp containers
     (actions/remote-file "/etc/lxc/lxc-tmp.conf"
                          :mode "0644"
                          :literal true
@@ -129,12 +129,13 @@
 
 (defplan take-image-snapshot
   "Take a snapshot of the image of a given container."
-  [hostname spec-name]
-  (let [image-dir (format "/var/lib/lxc/%s" hostname)
-        backup-dir (format "/home/image-server/images/%s" spec-name)]
+  [container-name image-server image-name]
+  (let [image-dir (format "/var/lib/lxc/%s/rootfs" container-name)
+        backup-url (format "root@%s::/home/image-server/images/%s" image-server image-name)]
+    (ssh-utils/add-host-to-known-hosts image-server)
     (actions/exec-checked-script
      "Take a snapshot of a given image"
-     ("rdiff-backup --preserve-numerical-ids" ~image-dir ~backup-dir))))
+     ("rdiff-backup --preserve-numerical-ids" ~image-dir ~backup-url))))
 
 (defplan destroy-container
   "Destroy a given container"
@@ -169,15 +170,12 @@
    (pipe ("echo halt")
          ("at -M now + 1 minute"))))
 
-(defplan snapshot-tmp-container
+(defplan snapshot-container
   []
-  (let [server (crate/target-name)
-        tmp-hostname (env/get-environment [:host-config server :image-server :tmp-hostname])
-        spec-kw (or (env/get-environment [:override-spec])
-                    (env/get-environment [:host-config tmp-hostname :base-image]))
-        spec-name (name spec-kw)]
-    (println "Taking snapshot of image..")
-    (take-image-snapshot tmp-hostname spec-name)))
+  (let [container-name (env/get-environment [:container-name])
+        image-server (env/get-environment [:image-server])
+        image-name (env/get-environment [:image-name])]
+    (take-image-snapshot container-name image-server image-name)))
 
 (defplan destroy-tmp-container
   []
@@ -198,7 +196,7 @@
         tmp-run (env/get-environment [:tmp-container-run] nil)
         ssh-public-key (env/get-environment [:host-config container-hostname :admin-user :ssh-public-key-path])
         remote-ssh-key-path (format "/tmp/%s.pub" container-hostname)
-        image-dir (format "/var/lib/lxc/%s" container-hostname)
+        container-dir (format "/var/lib/lxc/%s" container-hostname)
         remote-config-file (format "/etc/lxc/lxc-%s.conf" container-hostname)
         config-local-path (get-in spec [:lxc-create :f])
         local-template-file (get-in spec [:lxc-create :template-script])]
@@ -226,24 +224,21 @@
        "Ensure old container not in the way"
        ("lxc-stop -n" ~container-hostname)
        ("sleep 5")
-       ("rm -rf" ~image-dir)))
+       ("rm -rf" ~container-dir)))
 
     (create-base-container container-hostname
                            remote-config-file
                            (get spec :lxc-crete)
                            :auth-key-path remote-ssh-key-path)
 
-    (when (and (not tmp-run) (:image-url spec))
-      (let [image-url (:image-url spec)
-            config-remote-path (format "%s/config" image-dir)
-            backup-config (format "/tmp/%s-lxc-config" container-hostname)]
+    (when (and (not tmp-run) (:image-name spec) (:image-server))
+      (let [image-url (format "root@%s::/home/image-server/images/%s/" (:image-server spec) (:image-name spec))
+            rootfs (str container-dir "/rootfs")]
         (actions/exec-checked-script
-         "Backup config file"
-         ("cp" ~config-remote-path ~backup-config)
-         ("rm -rf" ~image-dir)
-         ("mkdir -p" ~image-dir)
-         ("rdiff-backup --preserve-numerical-ids --restore-as-of now" ~image-url ~image-dir)
-         ("cp" ~backup-config ~config-remote-path))))
+         "Create rootfs from image"
+         ("rm -rf" ~rootfs)
+         ("mkdir -p" ~rootfs)
+         ("rdiff-backup --preserve-numerical-ids --restore-as-of now" ~image-url ~rootfs))))
 
     ;; spin up container
     (boot-up-container container-hostname)))

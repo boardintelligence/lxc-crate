@@ -16,7 +16,7 @@
 (defn host-is-lxc-image-server?
   "Check if a host is an image server (as understood by the lxc-create)"
   [hostname]
-  (helpers/host-has-phase? hostname :snapshot-tmp-container))
+  (helpers/host-has-phase? hostname :setup-image-server))
 
 (defn boot-up-fresh-tmp-container
   "Boot up our known pre-defined lxc container"
@@ -72,17 +72,26 @@
     (Thread/sleep (* 70 1000))
     (println "tmp container halted.")))
 
-(defn snapshot-image-of-tmp-container
+(defn snapshot-image-of-container
   "Take a snapshot of the tmp container."
-  [image-server spec-kw]
+  [lxc-server container-name image-server image-name]
   (helpers/ensure-nodelist-bindings)
   (when-not (host-is-lxc-image-server? image-server)
     (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
-  (println "Snapshot tmp container..")
-  (let [result (helpers/run-one-plan-fn image-server lxc/snapshot-tmp-container {:override-spec spec-kw})]
+  (println "Snapshot container image..")
+  (let [result (helpers/run-one-plan-fn lxc-server lxc/snapshot-container {:container-name container-name
+                                                                           :image-server image-server
+                                                                           :image-name image-name})]
     (when (fsmop/failed? result)
-      (throw (IllegalStateException. "Failed to snapshot tmp container!")))
-    (println "Finished tmp container snapshot for " spec-kw)))
+      (throw (IllegalStateException. "Failed to snapshot container!")))
+    (println "Finished tmp container snapshot for " container-name)))
+
+(defn snapshot-image-of-tmp-container
+  "Take a snapshot of the tmp container."
+  [image-server spec-kw image-specs]
+  (let [container-name (get-in helpers/*nodelist-hosts-config* [image-server :image-server :tmp-hostname])
+        image-name (get-in image-specs [spec-kw :image-name])]
+    (snapshot-image-of-container image-server container-name image-server image-name)))
 
 (defn destroy-tmp-container
   "Destroy the tmp container."
@@ -101,7 +110,7 @@
   (boot-up-fresh-tmp-container image-server spec-kw image-specs)
   (run-setup-fn-in-tmp-container image-server spec-kw image-specs)
   (halt-tmp-container image-server)
-  (snapshot-image-of-tmp-container image-server spec-kw)
+  (snapshot-image-of-tmp-container image-server spec-kw image-specs)
   (destroy-tmp-container image-server))
 
 (defn- root-from-image-spec
