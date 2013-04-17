@@ -114,8 +114,7 @@
 (defplan minimal-image-prep
   []
   (with-action-options {:always-before #{actions/package-manager actions/package actions/minimal-packages}}
-    (actions/package-manager :update)
-    (actions/exec-script "apt-get install -q -y aptitude software-properties-common ncurses-term"))
+    (actions/exec-script "apt-get update && apt-get install -q -y aptitude software-properties-common ncurses-term"))
   (actions/minimal-packages))
 
 (defplan halt-container
@@ -149,9 +148,11 @@
   (let [tmp-hostname (crate/target-name)
         host-config (env/get-environment [:host-config tmp-hostname])
         spec-kw (or (env/get-environment [:override-spec])
-                    (:base-image host-config))
+                    (:image-spec host-config))
         image-spec (env/get-environment [:image-specs spec-kw])
         root-key-pub (get image-spec :root-key-pub)]
+
+    (minimal-image-prep)
 
     (when (:setup-fn image-spec)
       ((:setup-fn image-spec) image-spec host-config))
@@ -191,8 +192,7 @@
         image-specs (env/get-environment [:image-specs])
         container-hostname (env/get-environment [:container-for])
         container-config (env/get-environment [:host-config container-hostname])
-        spec-kw (env/get-environment [:override-spec] (:base-image container-config))
-        spec (get image-specs spec-kw)
+        spec (get image-specs (:image-spec container-config))
         tmp-run (env/get-environment [:tmp-container-run] nil)
         ssh-public-key (env/get-environment [:host-config container-hostname :admin-user :ssh-public-key-path])
         remote-ssh-key-path (format "/tmp/%s.pub" container-hostname)
@@ -200,6 +200,8 @@
         remote-config-file (format "/etc/lxc/lxc-%s.conf" container-hostname)
         config-local-path (get-in spec [:lxc-create :f])
         local-template-file (get-in spec [:lxc-create :template-script])]
+
+    (println "clp:" config-local-path spec)
 
     (actions/remote-file remote-ssh-key-path
                          :mode "0644"
@@ -231,7 +233,7 @@
                            (get spec :lxc-crete)
                            :auth-key-path remote-ssh-key-path)
 
-    (when (and (not tmp-run) (:image-name spec) (:image-server))
+    (when (and (not tmp-run) (:image-name spec) (:image-server spec))
       (let [image-url (format "root@%s::/home/image-server/images/%s/" (:image-server spec) (:image-name spec))
             rootfs (str container-dir "/rootfs")]
         (actions/exec-checked-script

@@ -36,7 +36,8 @@
         (throw (IllegalStateException. "Failed to bring up fresh tmp container!")))
       (println "Waiting for container to spin up (10s)..")
       (Thread/sleep (* 10 1000))
-      (let [result (helpers/run-one-plan-fn image-server (api/plan-fn (lxc/minimal-image-prep)))]
+      (println "Performing minimal image prep work")
+      (let [result (helpers/run-one-plan-fn tmp-hostname (api/plan-fn (lxc/minimal-image-prep)))]
         (when (fsmop/failed? result)
           (throw (IllegalStateException. "Failed to do minimal image prep of tmp container!"))))
       (println "tmp container up - connect to it using:" tmp-hostname))))
@@ -129,7 +130,7 @@
   [hostname image-specs]
   (helpers/ensure-nodelist-bindings)
   (let [container-config (get helpers/*nodelist-hosts-config* hostname)
-        root-from-spec (root-from-image-spec ((:base-image container-config) image-specs))
+        root-from-spec (root-from-image-spec ((:image-spec container-config) image-specs))
         result (helpers/run-one-plan-fn hostname root-from-spec lxc/setup-container-admin-user {})]
     (when (fsmop/failed? result)
       (throw (IllegalStateException. "Failed to create admin user!")))))
