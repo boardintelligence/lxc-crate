@@ -74,7 +74,7 @@
     (println "tmp container halted.")))
 
 (defn snapshot-image-of-container
-  "Take a snapshot of the tmp container."
+  "Take a snapshot of a container."
   [lxc-server container-name image-server image-name]
   (helpers/ensure-nodelist-bindings)
   (when-not (host-is-lxc-image-server? image-server)
