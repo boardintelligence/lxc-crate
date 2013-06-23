@@ -94,15 +94,20 @@
   If :auth-key-path key is given it's added to the end of the template-args,
   which works well with the ubuntu style tempaltes. For other targets work is
   needed."
-  [name conf-file create-conf & {:keys [auth-key-path]}]
+  [name conf-file create-conf & {:keys [auth-key-path autostart]}]
   (let [template (:t create-conf)
         template-args (reduce str "" (map (fn [[k v]] (format " --%s %s" (name k) v)) (:template-args create-conf)))
         template-args (if auth-key-path
                         (str template-args (format " --auth-key %s" auth-key-path))
-                        template-args)]
+                        template-args)
+        container-conf (format "/var/lib/lxc/%s/config" name)]
     (actions/exec-checked-script
      "Create a base container via lxc-create"
-     ("lxc-create -n" ~name "-f" ~conf-file "-t" ~template "--" ~template-args))))
+     ("lxc-create -n" ~name "-f" ~conf-file "-t" ~template "--" ~template-args))
+    (when autostart
+      (actions/exec-checked-script
+       "Make container autostart"
+       ("cd /etc/lxc/auto && ln -s" ~container-conf ~name)))))
 
 (defplan boot-up-container
   "Boot a given container"
@@ -110,6 +115,12 @@
   (actions/exec-checked-script
    "Start lxc container"
    ("lxc-start -d -n" ~name)))
+
+(defplan start-container
+  "Start a given container"
+  []
+  (let [container (env/get-environment [:container])]
+    (boot-up-container container)))
 
 (defplan minimal-image-prep
   []
@@ -119,12 +130,13 @@
 
 (defplan halt-container
   "Halt a given container"
-  [name]
-  (actions/exec-checked-script
-   "Start lxc container"
-   (if-not (= @(pipe ("lxc-info -n" ~name)
-                   ("grep RUNNING")) "")
-     ("lxc-halt -n" ~name))))
+  []
+  (let [container (env/get-environment [:container])]
+    (actions/exec-checked-script
+     "Halt lxc container"
+     (if-not (= @(pipe ("lxc-info -n" ~container)
+                       ("grep RUNNING")) "")
+       ("lxc-shutdown -w -n" ~container)))))
 
 (defplan take-image-snapshot
   "Take a snapshot of the image of a given container."
@@ -140,7 +152,7 @@
   "Destroy a given container"
   [name]
   (actions/exec-checked-script
-   "Start lxc container"
+   "Destroy lxc container"
    ("lxc-destroy -n" ~name "-f")))
 
 (defplan run-setup-fn-in-tmp-container
@@ -191,6 +203,7 @@
   (let [server (crate/target-name)
         image-specs (env/get-environment [:image-specs])
         container-hostname (env/get-environment [:container-for])
+        autostart (env/get-environment [:autostart])
         container-config (env/get-environment [:host-config container-hostname])
         spec (get image-specs (:image-spec container-config))
         tmp-run (env/get-environment [:tmp-container-run] nil)
@@ -200,8 +213,6 @@
         remote-config-file (format "/etc/lxc/lxc-%s.conf" container-hostname)
         config-local-path (get-in spec [:lxc-create :f])
         local-template-file (get-in spec [:lxc-create :template-script])]
-
-    (println "clp:" config-local-path spec)
 
     (actions/remote-file remote-ssh-key-path
                          :mode "0644"
@@ -230,8 +241,9 @@
 
     (create-base-container container-hostname
                            remote-config-file
-                           (get spec :lxc-crete)
-                           :auth-key-path remote-ssh-key-path)
+                           (get spec :lxc-create)
+                           :auth-key-path remote-ssh-key-path
+                           :autostart autostart)
 
     (when (and (not tmp-run) (:image-name spec) (:image-server spec))
       (let [image-url (format "root@%s::/home/image-server/images/%s/" (:image-server spec) (:image-name spec))

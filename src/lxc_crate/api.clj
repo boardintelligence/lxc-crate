@@ -57,6 +57,30 @@
         (throw (IllegalStateException. "Failed to run setup-fn in tmp container!")))
       (println "Setup-fn finished."))))
 
+(defn halt-container
+  "Halt a container"
+  [lxc-server container]
+  (helpers/ensure-nodelist-bindings)
+  (when-not (host-is-lxc-server? lxc-server)
+    (throw (IllegalArgumentException. (format "%s is not an lxc server!" lxc-server))))
+  (println "Halt container..")
+  (let [result (helpers/run-one-plan-fn lxc-server lxc/halt-container {:container container})]
+    (when (fsmop/failed? result)
+      (throw (IllegalStateException. "Failed to halt container!")))
+    (println "Container halted.")))
+
+(defn start-container
+  "Start a container"
+  [lxc-server container]
+  (helpers/ensure-nodelist-bindings)
+  (when-not (host-is-lxc-server? lxc-server)
+    (throw (IllegalArgumentException. (format "%s is not an lxc server!" lxc-server))))
+  (println "Start container..")
+  (let [result (helpers/run-one-plan-fn lxc-server lxc/start-container {:container container})]
+    (when (fsmop/failed? result)
+      (throw (IllegalStateException. "Failed to start container!")))
+    (println "Container started.")))
+
 (defn halt-tmp-container
   "Halt the tmp container"
   [image-server]
@@ -79,13 +103,15 @@
   (helpers/ensure-nodelist-bindings)
   (when-not (host-is-lxc-image-server? image-server)
     (throw (IllegalArgumentException. (format "%s is not an image server!" image-server))))
-  (println "Snapshot container image..")
+  (halt-container lxc-server container-name)
+  (println "Snapshot container image (this could take a while depending on size of delta to transfer)..")
   (let [result (helpers/run-one-plan-fn lxc-server lxc/snapshot-container {:container-name container-name
                                                                            :image-server image-server
                                                                            :image-name image-name})]
     (when (fsmop/failed? result)
       (throw (IllegalStateException. "Failed to snapshot container!")))
-    (println "Finished tmp container snapshot for " container-name)))
+    (println "Finished container snapshot for" container-name))
+  (start-container lxc-server container-name))
 
 (defn snapshot-image-of-tmp-container
   "Take a snapshot of the tmp container."
@@ -140,14 +166,16 @@
   [hostname image-specs]
   (helpers/ensure-nodelist-bindings)
   (let [container-config (get helpers/*nodelist-hosts-config* hostname)
-        lxc-server (:lxc-server container-config)]
+        lxc-server (:lxc-server container-config)
+        autostart (:lxc-autostart container-config)]
     (when-not (host-is-lxc-server? lxc-server)
       (throw (IllegalArgumentException. (format "%s is not an LXC server!" lxc-server))))
     (println (format "Create container %s (on server %s).."
                      hostname lxc-server))
 
     (let [result (helpers/lift-one-node-and-phase lxc-server :create-lxc-container {:container-for hostname
-                                                                                    :image-specs image-specs})]
+                                                                                    :image-specs image-specs
+                                                                                    :autostart autostart})]
       (when (fsmop/failed? result)
         (throw (IllegalStateException. "Failed to create container!"))))
 
