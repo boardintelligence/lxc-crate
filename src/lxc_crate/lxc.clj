@@ -203,7 +203,7 @@
   (let [server (crate/target-name)
         image-specs (env/get-environment [:image-specs])
         container-hostname (env/get-environment [:container-for])
-        autostart (env/get-environment [:autostart])
+        autostart (env/get-environment [:autostart] false)
         container-config (env/get-environment [:host-config container-hostname])
         spec (get image-specs (:image-spec container-config))
         tmp-run (env/get-environment [:tmp-container-run] nil)
