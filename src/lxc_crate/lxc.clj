@@ -94,20 +94,20 @@
   If :auth-key-path key is given it's added to the end of the template-args,
   which works well with the ubuntu style tempaltes. For other targets work is
   needed."
-  [name conf-file create-conf & {:keys [auth-key-path autostart]}]
+  [hostname conf-file create-conf & {:keys [auth-key-path autostart]}]
   (let [template (:t create-conf)
         template-args (reduce str "" (map (fn [[k v]] (format " --%s %s" (name k) v)) (:template-args create-conf)))
         template-args (if auth-key-path
                         (str template-args (format " --auth-key %s" auth-key-path))
                         template-args)
-        container-conf (format "/var/lib/lxc/%s/config" name)]
+        container-conf (format "/var/lib/lxc/%s/config" hostname)]
     (actions/exec-checked-script
      "Create a base container via lxc-create"
-     ("lxc-create -n" ~name "-f" ~conf-file "-t" ~template "--" ~template-args))
+     ("lxc-create -n" ~hostname "-f" ~conf-file "-t" ~template "--" ~template-args))
     (when autostart
       (actions/exec-checked-script
        "Make container autostart"
-       ("cd /etc/lxc/auto && ln -s" ~container-conf ~name)))))
+       ("cd /etc/lxc/auto && ln -s" ~container-conf ~hostname)))))
 
 (defplan boot-up-container
   "Boot a given container"
