@@ -217,6 +217,7 @@
     (actions/remote-file remote-ssh-key-path
                          :mode "0644"
                          :literal true
+                         :no-versioning true
                          :local-file ssh-public-key)
 
     (actions/remote-file remote-config-file
