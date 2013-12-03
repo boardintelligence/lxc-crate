@@ -203,7 +203,7 @@
   (let [server (crate/target-name)
         image-specs (env/get-environment [:image-specs])
         container-hostname (env/get-environment [:container-for])
-        override-spec (env/get-environment [:override-spec])
+        override-spec (env/get-environment [:override-spec] nil)
         autostart (env/get-environment [:autostart] false)
         container-config (env/get-environment [:host-config container-hostname])
         spec (get image-specs (or override-spec (:image-spec container-config)))
