@@ -228,7 +228,7 @@
 
     (when local-template-file
       (actions/remote-file (format "/usr/share/lxc/templates/lxc-%s"
-                                   (get-in spec [:lxc-create :template]))
+                                   (get-in spec [:lxc-create :t]))
                            :mode "0755"
                            :literal true
                            :local-file local-template-file))
