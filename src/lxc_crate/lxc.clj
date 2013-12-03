@@ -136,7 +136,7 @@
      "Halt lxc container"
      (if-not (= @(pipe ("lxc-info -n" ~container)
                        ("grep RUNNING")) "")
-       ("lxc-shutdown -w -n" ~container)))))
+       ("lxc-stop -n" ~container)))))
 
 (defplan take-image-snapshot
   "Take a snapshot of the image of a given container."
