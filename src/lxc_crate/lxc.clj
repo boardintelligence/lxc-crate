@@ -236,7 +236,9 @@
     (when overwrite?
       (actions/exec-checked-script
        "Ensure old container not in the way"
-       ("lxc-stop -n" ~container-hostname)
+       (if-not (= @(pipe ("lxc-info -n" ~container-hostname)
+                         ("grep RUNNING")) "")
+         ("lxc-stop -n" ~container-hostname))
        ("sleep 5")
        ("rm -rf" ~container-dir)))
 
